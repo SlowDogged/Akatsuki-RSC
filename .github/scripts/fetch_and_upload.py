@@ -1,6 +1,7 @@
 import requests
 import base64
 import os
+import time
 
 USERNAME = "SlowDogged"
 REPO = "Akatsuki-RSC"
@@ -8,22 +9,37 @@ FILE_PATH = "beatmaps.txt"
 BRANCH = "main"
 TOKEN = os.getenv("GITHUB_TOKEN")
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 AkatsukiBot/1.0"
+}
+
 def fetch_all_beatmaps():
     page = 1
     result = []
     while True:
         url = f"https://akatsuki.gg/api/v1/beatmaps?p={page}&l=100"
-        res = requests.get(url)
+        try:
+            res = requests.get(url, headers=HEADERS, timeout=10)
+        except Exception as e:
+            print(f"⚠️ Request failed on page {page}:", e)
+            break
+
         if res.status_code != 200:
             print("Failed to fetch page:", res.text)
             break
+
         data = res.json().get("beatmaps", [])
         if not data:
             break
+
         result.extend((str(b["beatmap_id"]), str(b["ranked"])) for b in data)
+        print(f"📄 Page {page}: +{len(data)} beatmaps")
+        page += 1
+        time.sleep(1)  # <- Delay between requests to avoid Cloudflare
+
         if len(data) < 100:
             break
-        page += 1
+
     return result
 
 def get_existing_file():
