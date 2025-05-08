@@ -2,7 +2,7 @@ import requests
 import base64
 import os
 
-USERNAME = "your-github-username"  # CHANGE THIS
+USERNAME = "SlowDogged"  
 REPO = "osu-beatmap-status"
 FILE_PATH = "beatmaps.txt"
 BRANCH = "main"
