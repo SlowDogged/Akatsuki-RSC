@@ -2,12 +2,11 @@ import requests
 import base64
 import os
 
-USERNAME = "SlowDogged"  # ⬅️ CHANGE THIS
+USERNAME = "SlowDogged"
 REPO = "Akatsuki-RSC"
 FILE_PATH = "beatmaps.txt"
 BRANCH = "main"
 TOKEN = os.getenv("GITHUB_TOKEN")
-
 
 def fetch_all_beatmaps():
     page = 1
@@ -27,7 +26,6 @@ def fetch_all_beatmaps():
         page += 1
     return result
 
-
 def get_existing_file():
     api_url = f"https://api.github.com/repos/{USERNAME}/{REPO}/contents/{FILE_PATH}"
     headers = {
@@ -41,7 +39,6 @@ def get_existing_file():
     sha = res.json()["sha"]
     lines = set(line.strip() for line in content.splitlines() if line.strip())
     return lines, sha
-
 
 def upload_updated_file(all_lines, sha):
     sorted_lines = sorted(all_lines, key=lambda x: int(x.split(",")[0]))
@@ -65,8 +62,7 @@ def upload_updated_file(all_lines, sha):
     if res.status_code in (200, 201):
         print("✅ Updated beatmaps.txt")
     else:
-        print("❌ Update failed:", res.text)
-
+        print("❌ Update failed:", res.status_code, res.text)
 
 def main():
     print("🔄 Fetching latest beatmaps from API...")
@@ -77,10 +73,22 @@ def main():
     existing_lines, sha = get_existing_file()
     print(f"📁 Existing lines in beatmaps.txt: {len(existing_lines)}")
 
+    # Debug: Print max beatmap ID from both
+    try:
+        max_existing = max(int(line.split(",")[0]) for line in existing_lines)
+        max_new = max(int(line.split(",")[0]) for line in new_lines)
+        print(f"📊 Max ID in existing file: {max_existing}")
+        print(f"📊 Max ID from API:        {max_new}")
+    except Exception as e:
+        print("⚠️  Error getting max ID:", e)
+
     new_only = new_lines - existing_lines
     print(f"➕ New beatmaps to add: {len(new_only)}")
 
     if new_only:
+        print("🆕 Example new entries:")
+        for line in sorted(new_only, key=lambda x: int(x.split(",")[0]))[:10]:
+            print("   ➤", line)
         combined = existing_lines | new_only
         upload_updated_file(combined, sha)
     else:
