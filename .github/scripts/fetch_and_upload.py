@@ -8,40 +8,10 @@ REPO = "Akatsuki-RSC"
 FILE_PATH = "beatmaps.txt"
 BRANCH = "main"
 TOKEN = os.getenv("GITHUB_TOKEN")
+API_URL = "https://akatsuki.gg/api/v1/beatmaps?p={page}&l=100"
+USER_AGENT = {"User-Agent": "Mozilla/5.0 AkatsukiBot/1.0"}
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 AkatsukiBot/1.0"
-}
-
-def fetch_all_beatmaps():
-    page = 1
-    result = []
-    while True:
-        url = f"https://akatsuki.gg/api/v1/beatmaps?p={page}&l=100"
-        try:
-            res = requests.get(url, headers=HEADERS, timeout=10)
-        except Exception as e:
-            print(f"⚠️ Request failed on page {page}:", e)
-            break
-
-        if res.status_code != 200:
-            print("Failed to fetch page:", res.text)
-            break
-
-        data = res.json().get("beatmaps", [])
-        if not data:
-            break
-
-        result.extend((str(b["beatmap_id"]), str(b["ranked"])) for b in data)
-        print(f"📄 Page {page}: +{len(data)} beatmaps")
-        page += 1
-        time.sleep(1)  # <- Delay between requests to avoid Cloudflare
-
-        if len(data) < 100:
-            break
-
-    return result
-
+# Step 1: Download current beatmaps.txt
 def get_existing_file():
     api_url = f"https://api.github.com/repos/{USERNAME}/{REPO}/contents/{FILE_PATH}"
     headers = {
@@ -50,16 +20,61 @@ def get_existing_file():
     }
     res = requests.get(api_url, headers=headers)
     if res.status_code != 200:
-        raise Exception("Could not fetch file from GitHub:", res.text)
+        raise Exception("❌ Could not fetch beatmaps.txt:", res.text)
     content = base64.b64decode(res.json()["content"]).decode()
     sha = res.json()["sha"]
-    lines = set(line.strip() for line in content.splitlines() if line.strip())
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
     return lines, sha
 
-def upload_updated_file(all_lines, sha):
-    sorted_lines = sorted(all_lines, key=lambda x: int(x.split(",")[0]))
-    final_content = "\n".join(sorted_lines) + "\n"
-    encoded_content = base64.b64encode(final_content.encode()).decode()
+# Step 2: Get max beatmap ID from file
+def get_max_existing_id(lines):
+    ids = [int(line.split(",")[0]) for line in lines if "," in line]
+    return max(ids) if ids else 0
+
+# Step 3: Fetch only newer beatmaps
+def fetch_new_beatmaps(since_id):
+    page = 1
+    new_beatmaps = []
+    while True:
+        url = API_URL.format(page=page)
+        try:
+            res = requests.get(url, headers=USER_AGENT, timeout=10)
+        except Exception as e:
+            print(f"⚠️ Request failed on page {page}:", e)
+            break
+
+        if res.status_code != 200:
+            print("❌ Failed to fetch page:", res.text)
+            break
+
+        beatmaps = res.json().get("beatmaps", [])
+        if not beatmaps:
+            break
+
+        page_new = []
+        for b in beatmaps:
+            bid = int(b["beatmap_id"])
+            ranked = int(b["ranked"])
+            if bid <= since_id:
+                print(f"🛑 Stopped at beatmap ID {bid} (already known)")
+                return new_beatmaps
+            page_new.append((bid, ranked))
+
+        new_beatmaps.extend(page_new)
+        print(f"📄 Page {page}: +{len(page_new)} new beatmaps")
+        page += 1
+        time.sleep(0.5)
+
+        if len(beatmaps) < 100:
+            break
+
+    return new_beatmaps
+
+# Step 4: Upload updated file to GitHub
+def upload_file(all_lines, sha):
+    sorted_lines = sorted(set(all_lines), key=lambda x: int(x.split(",")[0]))
+    content_str = "\n".join(sorted_lines) + "\n"
+    encoded = base64.b64encode(content_str.encode()).decode()
 
     api_url = f"https://api.github.com/repos/{USERNAME}/{REPO}/contents/{FILE_PATH}"
     headers = {
@@ -68,47 +83,32 @@ def upload_updated_file(all_lines, sha):
     }
 
     data = {
-        "message": f"Auto-update beatmaps.txt with new beatmaps",
-        "content": encoded_content,
+        "message": f"Auto-update beatmaps.txt with only new beatmaps",
+        "content": encoded,
         "branch": BRANCH,
         "sha": sha
     }
 
     res = requests.put(api_url, headers=headers, json=data)
     if res.status_code in (200, 201):
-        print("✅ Updated beatmaps.txt")
+        print(f"✅ Uploaded {len(all_lines)} total lines to beatmaps.txt")
     else:
-        print("❌ Update failed:", res.status_code, res.text)
+        print("❌ Upload failed:", res.text)
 
+# Main logic
 def main():
-    print("🔄 Fetching latest beatmaps from API...")
-    new_beatmaps = fetch_all_beatmaps()
-    new_lines = set(f"{bid}, {ranked}" for bid, ranked in new_beatmaps)
+    print("🔁 Checking for new beatmaps...")
+    lines, sha = get_existing_file()
+    max_id = get_max_existing_id(lines)
+    print(f"📁 Existing max beatmap ID: {max_id}")
 
-    print(f"🗂️  Fetched {len(new_lines)} beatmaps from API.")
-    existing_lines, sha = get_existing_file()
-    print(f"📁 Existing lines in beatmaps.txt: {len(existing_lines)}")
-
-    # Debug: Print max beatmap ID from both
-    try:
-        max_existing = max(int(line.split(",")[0]) for line in existing_lines)
-        max_new = max(int(line.split(",")[0]) for line in new_lines)
-        print(f"📊 Max ID in existing file: {max_existing}")
-        print(f"📊 Max ID from API:        {max_new}")
-    except Exception as e:
-        print("⚠️  Error getting max ID:", e)
-
-    new_only = new_lines - existing_lines
-    print(f"➕ New beatmaps to add: {len(new_only)}")
-
-    if new_only:
-        print("🆕 Example new entries:")
-        for line in sorted(new_only, key=lambda x: int(x.split(",")[0]))[:10]:
-            print("   ➤", line)
-        combined = existing_lines | new_only
-        upload_updated_file(combined, sha)
+    new_maps = fetch_new_beatmaps(max_id)
+    if new_maps:
+        print(f"➕ Found {len(new_maps)} new beatmaps.")
+        combined = lines + [f"{bid}, {ranked}" for bid, ranked in new_maps]
+        upload_file(combined, sha)
     else:
-        print("🟢 No new beatmaps to update.")
+        print("🟢 No new beatmaps found.")
 
 if __name__ == "__main__":
     main()
