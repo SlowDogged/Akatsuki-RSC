@@ -3,7 +3,7 @@ import base64
 import os
 
 USERNAME = "SlowDogged"  
-REPO = "osu-beatmap-status"
+REPO = "Akatsuki-RSC"
 FILE_PATH = "beatmaps.txt"
 BRANCH = "main"
 TOKEN = os.getenv("GITHUB_TOKEN")
